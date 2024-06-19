@@ -4,8 +4,17 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM alpine:3.20 as latest
+FROM debian:bookworm-slim as latest
 LABEL maintainer="hi@billgo.me"
+
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    ca-certificates \
+# ERROR: no download agent available; install curl, wget, or fetch
+    curl \
+  ; \
+  rm -rf /var/lib/apt/lists/*
 
 ENV JULIA_PATH /usr/local/julia
 ENV PATH $JULIA_PATH/bin:$PATH
@@ -19,15 +28,32 @@ ENV JULIA_VERSION 1.10.4
 
 RUN set -eux; \
   \
-  apk add --no-cache --virtual .fetch-deps gnupg; \
+  savedAptMark="$(apt-mark showmanual)"; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+    gnupg \
+  ; \
+  rm -rf /var/lib/apt/lists/*; \
   \
 # https://julialang.org/downloads/#julia-command-line-version
 # https://julialang-s3.julialang.org/bin/checksums/julia-1.10.4.sha256
-  arch="$(apk --print-arch)"; \
+  arch="$(dpkg --print-architecture)"; \
   case "$arch" in \
-    'x86_64') \
-      url='https://julialang-s3.julialang.org/bin/musl/x64/1.10/julia-1.10.4-musl-x86_64.tar.gz'; \
-      sha256='c7506a1aad431ff1d902a3f4eb9373cfe25440492b45148268a5aca48ece04c2'; \
+    'amd64') \
+      url='https://julialang-s3.julialang.org/bin/linux/x64/1.10/julia-1.10.4-linux-x86_64.tar.gz'; \
+      sha256='079f61757c3b5b40d2ade052b3cc4816f50f7ef6df668825772562b3746adff1'; \
+      ;; \
+    'arm64') \
+      url='https://julialang-s3.julialang.org/bin/linux/aarch64/1.10/julia-1.10.4-linux-aarch64.tar.gz'; \
+      sha256='ae4ae6ade84a103cdf30ce91c8d4035a0ef51c3e2e66f90a0c13abeb4e100fc4'; \
+      ;; \
+    'i386') \
+      url='https://julialang-s3.julialang.org/bin/linux/x86/1.10/julia-1.10.4-linux-i686.tar.gz'; \
+      sha256='5771c6032b2be4442f4d4f4fc610eac09a48888ce1f4a41d10208e9d413f5054'; \
+      ;; \
+    'ppc64el') \
+      url='https://julialang-s3.julialang.org/bin/linux/ppc64le/1.10/julia-1.10.4-linux-ppc64le.tar.gz'; \
+      sha256='0703f983894974491715e816a006e0f063966544023f470c94c71ef99dff9dba'; \
       ;; \
     *) \
       echo >&2 "error: current architecture ($arch) does not have a corresponding Julia binary release"; \
@@ -35,10 +61,10 @@ RUN set -eux; \
       ;; \
   esac; \
   \
-  wget -O julia.tar.gz.asc "$url.asc"; \
-  wget -O julia.tar.gz "$url"; \
+  curl -fL -o julia.tar.gz.asc "$url.asc"; \
+  curl -fL -o julia.tar.gz "$url"; \
   \
-  echo "$sha256 *julia.tar.gz" | sha256sum -w -c -; \
+  echo "$sha256 *julia.tar.gz" | sha256sum --strict --check -; \
   \
   export GNUPGHOME="$(mktemp -d)"; \
   gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$JULIA_GPG"; \
@@ -50,13 +76,15 @@ RUN set -eux; \
   tar -xzf julia.tar.gz -C "$JULIA_PATH" --strip-components 1; \
   rm julia.tar.gz; \
   \
-  apk del --no-network .fetch-deps; \
+  apt-mark auto '.*' > /dev/null; \
+  [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
+  apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
   \
 # smoke test
   julia --version
 
-# 更新包索引并安装 build-base 包
-RUN apk update && apk add build-base
+# 更新包索引并安装 gcc 和 g++
+RUN apt-get update && apt-get install -y gcc g++ && rm -rf /var/lib/apt/lists/*
 
 COPY docker-entrypoint.sh /usr/local/bin/
 ENTRYPOINT ["docker-entrypoint.sh"]
