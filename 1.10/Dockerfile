@@ -4,7 +4,7 @@
 # PLEASE DO NOT EDIT IT DIRECTLY.
 #
 
-FROM debian:bookworm-slim as latest
+FROM debian:bookworm-slim AS latest
 LABEL maintainer="hi@billgo.me"
 
 RUN set -eux; \
